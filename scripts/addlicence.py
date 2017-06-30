@@ -5,6 +5,8 @@ import tempfile
 import shutil
 import argparse
 import contextlib
+import logging
+import coloredlogs
 
 class ApacheHeader(object):
     """docstring for ApacheHeader"""
@@ -48,19 +50,6 @@ class ApacheHeader(object):
     def addon(self):
         return self._addon.strip('\n')
 
-    # #------------------------------------------------------------------------------
-    # def build(self, commentchar, border='-'*79, sectionbreak='{:^80}'.format('- - -')):
-
-    #     headerlines = [border]
-
-    #     for e in ['', self.copyright, '', self.body, '', sectionbreak, '', self.addon, '']:
-    #         for line in e.split('\n'):
-    #             headerlines += [line]
-    #     headerlines += [border]
-
-    #     return '\n'.join([ commentchar+l for l in headerlines])
-    # #------------------------------------------------------------------------------
-
     #------------------------------------------------------------------------------
     def build(self, commentchar='', border='-'*79, sectionbreak='{:^80}'.format('- - -').rstrip()):
 
@@ -77,12 +66,14 @@ class ApacheHeader(object):
         return self.build().count('\n')
 
 licensable = {
-    '.tcl':'#',
-    '.c': '//',
-    '.vhd': '--',
-    '.dep': '#',
-    '.sh': '#',
-    '.v': '//',
+    '.tcl': ('#', None, None),
+    '.c':   ('//', None, None),
+    '.vhd': ('--', None, None),
+    '.dep': ('#', None, None),
+    '.sh':  ('#', None, None),
+    '.v':   ('//', None, None),
+    '.xml': ('', '<!--', '-->'),
+    '.ucf': ('#', None, None),
     }
 
 
@@ -95,38 +86,38 @@ def addlicence(rootDir, selection, dryrun):
 
     for ext in selection:
         if ext not in licensable:
-            print "Error: unknown extension", ext
+            logging.error("Error: unknown extension %s", ext)
             raise SystemExit(1)
 
+    logging.info('Searching for files and folders')
     for dirName, subdirList, fileList in os.walk(rootDir):
         if dirName.startswith(os.path.join(rootDir,'.')):
             continue
 
-        print('Inspecting directory: %s' % dirName)
+        logging.debug('Inspecting directory: %s', dirName)
 
         for fname in fileList:
             root, ext = os.path.splitext(fname)
             extensions.setdefault(ext, []).append(os.path.join(dirName,fname))
-            print('\t%s' % fname)
+            logging.debug('   %s', fname)
 
-    print 'File extensions found:', extensions.keys()
-    print
+    logging.info('File extensions found: %s', extensions.keys())
     for ext in selection:
         if ext not in extensions:
-            print '> No files with extension', ext, 'found in', rootDir
+            logging.warn('No files with extension %s found in %s', ext, rootDir)
             continue
-        print '---','Processing extension',ext,'---'
+        logging.info('--- Processing extension %s ---', ext)
         # print extensions[ext]
 
         for filepath in extensions[ext]:
-            print 'Processing', filepath
-            print ' + Inspecting file...'
+            logging.info("Processing %s", filepath)
+            logging.info(" + Inspecting file...")
             if not check(filepath, licHeader):
-                print 'Licence header detected, skipping...'
+                logging.warning(" + Licence header detected, skipping...")
                 continue
-            print ' + Patching',filepath
+            logging.info(" + Patching %s",filepath)
             if dryrun:
-                print "   - dry run mode: nothing done"
+                logging.warn("   - dry run mode: nothing done")
                 continue
             prepend(filepath, ext, licHeader)
 #------------------------------------------------------------------------------
@@ -155,15 +146,30 @@ def check(filepath, header):
 def prepend(filepath, ext, header):
 
     tmpdir = tempfile.mkdtemp()
-    print 'Temporary directory', tmpdir, 'created'
+    logging.debug('Temporary directory %s created', tmpdir)
     tmpfilepath = os.path.join(tmpdir, os.path.basename(filepath))
-    print tmpfilepath
+    logging.debug('Original file copied to %s', tmpfilepath)
     shutil.copy2(filepath, tmpfilepath)
 
     with contextlib.nested(open(filepath, 'w'), open(tmpfilepath, 'r')) as (A, B):
 
+        # Work around shebangs
+        firstline = B.readline()
+        if firstline.startswith('#!'):
+            A.write(firstline)
+        else:
+            B.seek(0)
+
+        comment, pre, post = licensable[ext]
+
+        if pre is not None:
+            A.write(pre+'\n')
+
         # Start from the header
-        A.write(header.build(licensable[ext]))
+        A.write(header.build(comment))
+
+        if post is not None:
+            A.write(post+'\n')
 
         # Add 2 blank lines
         A.write('\n\n')
@@ -172,19 +178,36 @@ def prepend(filepath, ext, header):
             A.write(line)
 
     shutil.rmtree(tmpdir)
-    print 'Temporary directory', tmpdir, 'deleted'
+    logging.debug('Temporary directory deleted %s', tmpdir)
 #------------------------------------------------------------------------------
 
-# Add comment character for file type
-# 
+# custom class to validate 'exec' variables
+class SplitAction(argparse.Action):
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        values = [ (v if v[0] == '.' else '.'+v) for v in values.split(',') ]
+
+        setattr(namespace, self.dest, values)
+
+
 
 if __name__ == '__main__':
+
+    coloredlogs.install(level='DEBUG',
+                        # fmt='%(asctime)s %(levelname)-8s: %(message)s',
+                        fmt='%(levelname)-8s: %(message)s',
+                        field_styles={'asctime': {'color': 'blue'}}
+                        )
 
     parser = argparse.ArgumentParser()
     parser.add_argument('folders', default=['.'],nargs='+')
     parser.add_argument('-n', dest='dryrun', default=False, action='store_true', help='Dry run, no chances will be applied')
+    parser.add_argument('-e', dest='extensions', default=['.vhd', '.tcl', '.v', '.dep', '.sh'], action=SplitAction, help='Extensions to processed')
     args = parser.parse_args()
-    print args
+
+    # extensions =  ['.vhd', '.tcl', '.v', '.dep', '.sh']
+    logging.info('Apache licence header will be applied to the following extensions'+' '.join(args.extensions))
+
     for folder in args.folders:
-        addlicence(folder, ['.vhd', '.tcl', '.v', '.dep'], args.dryrun)
+        addlicence(folder, args.extensions, args.dryrun)
 
