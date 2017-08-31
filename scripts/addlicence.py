@@ -80,6 +80,10 @@ licensable = {
 #------------------------------------------------------------------------------
 def addlicence(rootDir, selection, dryrun):
 
+    if not os.path.exists(rootDir):
+        logging.error( "Directory '%s' does not exist", rootDir )
+        raise SystemExit(1)
+
     # rootDir = '.'
     extensions = {}
     licHeader = ApacheHeader()
@@ -101,23 +105,23 @@ def addlicence(rootDir, selection, dryrun):
             extensions.setdefault(ext, []).append(os.path.join(dirName,fname))
             logging.debug('   %s', fname)
 
-    logging.info('File extensions found: %s', extensions.keys())
+    logging.debug("File extensions found: %s", extensions.keys())
     for ext in selection:
         if ext not in extensions:
-            logging.warn('No files with extension %s found in %s', ext, rootDir)
+            logging.info("No files with extension '%s' found in %s", ext, rootDir)
             continue
-        logging.info('--- Processing extension %s ---', ext)
+        logging.info("--- Processing extension %s ---", ext)
         # print extensions[ext]
 
         for filepath in extensions[ext]:
-            logging.info("Processing %s", filepath)
-            logging.info(" + Inspecting file...")
+            logging.debug("Processing %s", filepath)
+            logging.debug(" + Inspecting file...")
             if not check(filepath, licHeader):
-                logging.warning(" + Licence header detected, skipping...")
+                logging.debug(" + Licence header detected, skipping...")
                 continue
             logging.info(" + Patching %s",filepath)
             if dryrun:
-                logging.warn("   - dry run mode: nothing done")
+                logging.debug("   - dry run mode: nothing done")
                 continue
             prepend(filepath, ext, licHeader)
 #------------------------------------------------------------------------------
@@ -125,7 +129,7 @@ def addlicence(rootDir, selection, dryrun):
 #------------------------------------------------------------------------------
 def check(filepath, header):
     """
-    Check whether the header is already included in the file by looking for the 
+    Check whether the header is already included in the file by looking for the
     copyright line in the first lines of the file
     """
 
@@ -134,7 +138,7 @@ def check(filepath, header):
         for _ in xrange(len(header)):
             # Read one line
             line = A.readline()
-            # Search for the copyright 
+            # Search for copyright
             idx = line.find(header.copyright.strip())
             # Stop here if found
             if idx != -1:
@@ -193,9 +197,9 @@ class SplitAction(argparse.Action):
 
 if __name__ == '__main__':
 
-    coloredlogs.install(level='DEBUG',
+    coloredlogs.install(level='INFO',
                         # fmt='%(asctime)s %(levelname)-8s: %(message)s',
-                        fmt='%(levelname)-8s: %(message)s',
+                        fmt='%(levelname)-8s| %(message)s',
                         field_styles={'asctime': {'color': 'blue'}}
                         )
 
@@ -210,4 +214,7 @@ if __name__ == '__main__':
 
     for folder in args.folders:
         addlicence(folder, args.extensions, args.dryrun)
+
+    if args.dryrun:
+        logging.warn("Dry-run: no file has been patched.")
 
