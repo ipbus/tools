@@ -28,7 +28,18 @@ function pathadd() {
 }
 #------------------------------------------------------------------------------
 
-IPBUSTOOLS_ROOT=$(cd $(dirname ${BASH_SOURCE}) && pwd)
+if [ -n "$ZSH_VERSION" ]; then
+   # assume Zsh
+   SH_SOURCE=${(%):-%x}
+elif [ -n "$BASH_VERSION" ]; then
+   # assume Bash
+   SH_SOURCE=${BASH_SOURCE}
+else
+   # asume something else
+   echo "Error: only bash and zsh supported"
+fi
+
+IPBUSTOOLS_ROOT=$(cd $(dirname ${SH_SOURCE}) && pwd)
 
 export PATH="${IPBUSTOOLS_ROOT}/scripts${PATH:+:}${PATH}"
 
